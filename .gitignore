@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Configuración de editores
+.vscode/
+.idea/
+
+# Bases de datos locales
+*.db
+*.sqlite3
+
+# Variables de entorno
+.env
+
+# Archivos de prueba
+.pytest_cache/
+
+# Logs
+*.log
