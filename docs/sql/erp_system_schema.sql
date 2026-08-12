@@ -68,7 +68,10 @@ CREATE TABLE authentication.sessions (
 	CONSTRAINT ck_sessions_dates
 		CHECK(
 			expires_at > created_at
-			AND closed_at > created_at
+			AND (
+				closed_at IS NULL
+				OR closed_at > created_at
+			)
 		)
 );
 
@@ -127,7 +130,9 @@ CREATE TABLE commerce.logistics_companies (
 	phone VARCHAR(30) NOT NULL,
 	address VARCHAR(255),
 	CONSTRAINT pk_logistics_companies
-		PRIMARY KEY(id)
+		PRIMARY KEY(id),
+	CONSTRAINT uq_logistics_companies_name
+    	UNIQUE(company_name)
 );
 
 CREATE TABLE commerce.independent_shippers (
@@ -148,7 +153,9 @@ CREATE TABLE commerce.zones (
 	description VARCHAR(150),
 	is_active BOOLEAN NOT NULL DEFAULT TRUE,
 	CONSTRAINT pk_zones
-		PRIMARY KEY(id)
+		PRIMARY KEY(id),
+	CONSTRAINT uq_zones_name
+    	UNIQUE(name)
 );
 
 CREATE TABLE commerce.categories (
@@ -274,7 +281,7 @@ CREATE TABLE commerce.deliveries (
 	shipper_id BIGINT NOT NULL,
 	scheduled_delivery_date DATE NOT NULL,
 	departure_datetime TIMESTAMPTZ NOT NULL,
-	estimated_arrival_time TIME NOT NULL,
+	estimated_arrival_datetime TIMESTAMPTZ NOT NULL,
 	delivery_address VARCHAR(150) NOT NULL,
 	delivery_status VARCHAR(30) NOT NULL,
 	CONSTRAINT pk_deliveries
@@ -284,7 +291,9 @@ CREATE TABLE commerce.deliveries (
 		REFERENCES commerce.orders(id),
 	CONSTRAINT fk_deliveries_shipper_id
 		FOREIGN KEY(shipper_id)
-		REFERENCES commerce.shippers(id)
+		REFERENCES commerce.shippers(id),
+	CONSTRAINT ck_deliveries_datetime
+    CHECK (estimated_arrival_datetime >= departure_datetime)
 );
 
 CREATE TABLE commerce.shipper_zone_assignments (
@@ -303,6 +312,19 @@ CREATE TABLE commerce.shipper_zone_assignments (
 	CONSTRAINT fk_shipper_zone_assignments_zone_id
 		FOREIGN KEY(zone_id)
 		REFERENCES commerce.zones(id),
+	CONSTRAINT ck_shipper_zone_assignments
+		CHECK(
+			weekday IS NULL
+			OR weekday IN (
+				'monday',
+				'tuesday',
+				'wednesday',
+				'thursday',
+				'friday',
+				'saturday',
+				'sunday'
+			)
+		),
 	CONSTRAINT ck_shipper_zone_assignments_dates
 		CHECK(updated_at >= created_at)
 );
@@ -332,11 +354,10 @@ CREATE TABLE commerce.products (
 		UNIQUE(barcode),
 	CONSTRAINT ck_products_min_max_stock
 		CHECK(
-			(maximum_stock IS NULL)
-			OR 
-			(
-				minimum_stock >= 0
-				AND maximum_stock >= minimum_stock
+			minimum_stock >= 0
+			AND (
+				maximum_stock IS NULL
+				OR maximum_stock >= minimum_stock
 			)
 		),
 	CONSTRAINT ck_products_dates
@@ -418,7 +439,7 @@ CREATE TABLE commerce.invoice_details (
 	invoice_id BIGINT NOT NULL,
 	product_id BIGINT NOT NULL,
 	product_code VARCHAR(50) NOT NULL,
-	product_name VARCHAR(50) NOT NULL,
+	product_name VARCHAR(150) NOT NULL,
 	unit_of_measure VARCHAR(20) NOT NULL,
 	quantity DECIMAL(10,2) NOT NULL,
 	unit_price DECIMAL(10,2) NOT NULL,
@@ -473,8 +494,8 @@ CREATE TABLE commerce.supplier_products (
 	purchase_cost DECIMAL(10,2) NOT NULL,
 	minimum_order_quantity INT,
 	lead_time_days INT,
-	is_preferred_supplier BOOLEAN NOT NULL,
-	is_active BOOLEAN NOT NULL,
+	is_preferred_supplier BOOLEAN NOT NULL DEFAULT FALSE,
+	is_active BOOLEAN NOT NULL DEFAULT TRUE,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 	CONSTRAINT pk_supplier_products
@@ -529,7 +550,7 @@ CREATE TABLE commerce.purchase_order_details (
 	purchase_order_id BIGINT NOT NULL,
 	supplier_product_id BIGINT NOT NULL,
 	supplier_product_code VARCHAR(50) NOT NULL,
-	product_name VARCHAR(50) NOT NULL,
+	product_name VARCHAR(150) NOT NULL,
 	unit_of_measure VARCHAR(20) NOT NULL,
 	quantity DECIMAL(10,2) NOT NULL,
 	unit_cost DECIMAL(10,2) NOT NULL,
@@ -589,7 +610,7 @@ CREATE TABLE commerce.purchase_receipt_details (
 	purchase_receipt_id BIGINT NOT NULL,
 	supplier_product_id BIGINT NOT NULL,
 	supplier_product_code VARCHAR(50) NOT NULL,
-	product_name VARCHAR(50) NOT NULL,
+	product_name VARCHAR(150) NOT NULL,
 	unit_of_measure VARCHAR(20) NOT NULL,
 	quantity_received DECIMAL(10,2) NOT NULL,
 	unit_cost DECIMAL(10,2) NOT NULL,
@@ -628,6 +649,8 @@ CREATE TABLE commerce.supplier_invoices (
 	CONSTRAINT fk_supplier_invoices_supplier_id
 		FOREIGN KEY(supplier_id)
 		REFERENCES commerce.suppliers(id),
+	CONSTRAINT uq_supplier_invoices_supplier_invoice
+		UNIQUE(supplier_id, invoice_number)
 	CONSTRAINT ck_supplier_invoices_due_date
 		CHECK(due_date IS NULL OR due_date >= CAST(issue_date AS DATE)),
 	CONSTRAINT ck_supplier_invoices_total_data
@@ -646,7 +669,7 @@ CREATE TABLE commerce.supplier_invoice_details (
 	supplier_invoice_id BIGINT NOT NULL,
 	supplier_product_id BIGINT NOT NULL,
 	product_code VARCHAR(50) NOT NULL,
-	product_name VARCHAR(50) NOT NULL,
+	product_name VARCHAR(150) NOT NULL,
 	unit_of_measure VARCHAR(20) NOT NULL,
 	quantity DECIMAL(10,2) NOT NULL,
 	unit_cost DECIMAL(10,2) NOT NULL,
@@ -692,8 +715,17 @@ CREATE TABLE commerce.product_batches (
 	CONSTRAINT fk_product_batches_purchase_receipt_detail_id
 		FOREIGN KEY(purchase_receipt_detail_id)
 		REFERENCES commerce.purchase_receipt_details(id),
+	CONSTRAINT ck_product_batches_manufacture_date
+		CHECK(
+			manufacture_date IS NULL 
+			OR manufacture_date <= received_date
+		),
 	CONSTRAINT ck_product_batches_expiration_date
-		CHECK(expiration_date IS NULL OR expiration_date > received_date),
+		CHECK(
+			expiration_date IS NULL 
+			OR expiration_date > received_date 
+			OR expiration_date > manufacture_date 
+		),
 	CONSTRAINT ck_product_batches_quantity_and_cost
 		CHECK(
 			initial_quantity > 0
@@ -755,11 +787,3 @@ CREATE TABLE commerce.supplier_invoice_receipts (
 		FOREIGN KEY(purchase_receipt_id)
 		REFERENCES commerce.purchase_receipts(id)
 );
-
-
-
-
-
-
-
-
